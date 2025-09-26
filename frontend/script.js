@@ -13,6 +13,11 @@ class DiagramDigitizationSystem {
         this.setupEventListeners();
         this.loadEquipment();
         this.loadDiagrams();
+
+        // Initialize statistics
+        setTimeout(() => {
+            this.updateStatistics();
+        }, 500);
     }
 
     setupEventListeners() {
@@ -109,7 +114,7 @@ class DiagramDigitizationSystem {
             if (response.ok) {
                 this.showNotification('機器が正常に登録されました', 'success');
                 this.clearEquipmentForm();
-                this.loadEquipment();
+                await this.loadEquipment(); // 統計更新のため await を追加
             } else {
                 this.showNotification(data.error || '登録に失敗しました', 'error');
             }
@@ -164,6 +169,7 @@ class DiagramDigitizationSystem {
 
             this.equipmentList = data;
             this.renderEquipmentList();
+            this.updateStatistics();
         } catch (error) {
             console.error('Failed to load equipment:', error);
         }
@@ -190,7 +196,7 @@ class DiagramDigitizationSystem {
             item.className = 'equipment-item';
 
             const imagesHtml = equipment.images.map(imagePath =>
-                `<img src="http://localhost:8000/${imagePath}" alt="${equipment.name}">`
+                `<img src="http://localhost:8000/uploads/${imagePath.replace(/.*\//, '')}" alt="${equipment.name}">`
             ).join('');
 
             item.innerHTML = `
@@ -206,17 +212,31 @@ class DiagramDigitizationSystem {
 
             container.appendChild(item);
         });
+
+        // Update statistics
+        this.updateStatistics();
     }
 
     renderDiagramList() {
         const container = document.getElementById('diagram-list');
         container.innerHTML = '';
 
+        if (this.diagramList.length === 0) {
+            container.innerHTML = '<div class="no-data">図面がアップロードされていません</div>';
+            return;
+        }
+
         this.diagramList.forEach(diagram => {
             const item = document.createElement('div');
             item.className = 'diagram-item';
 
+            // Create a preview thumbnail if possible
+            const thumbnailHtml = diagram.image_path ?
+                `<img src="http://localhost:8000/${diagram.image_path}" alt="${diagram.name}" style="width: 100px; height: 70px; object-fit: cover; border-radius: 4px; margin-bottom: 10px;">` :
+                '<div style="width: 100px; height: 70px; background: #f0f0f0; border-radius: 4px; margin-bottom: 10px; display: flex; align-items: center; justify-content: center;"><i class="fas fa-file-pdf"></i></div>';
+
             item.innerHTML = `
+                ${thumbnailHtml}
                 <h4>${diagram.name}</h4>
                 <p>アップロード日時: ${new Date(diagram.created_at).toLocaleString()}</p>
                 <div class="diagram-actions">
@@ -231,23 +251,105 @@ class DiagramDigitizationSystem {
 
             container.appendChild(item);
         });
+
+        console.log('Rendered diagram list:', this.diagramList);
     }
 
-    loadEquipmentForSelection() {
+    async loadEquipmentForSelection() {
         const container = document.getElementById('equipment-selection-list');
         container.innerHTML = '';
 
-        this.equipmentList.forEach(equipment => {
-            const item = document.createElement('div');
-            item.className = 'equipment-checkbox';
+        // Load trained equipment from enterprise ML system
+        let trainedEquipment = [];
+        try {
+            const response = await fetch(`${this.apiBaseUrl}/enterprise/trained-equipment`);
+            if (response.ok) {
+                const data = await response.json();
+                trainedEquipment = data.equipment || [];
+            }
+        } catch (error) {
+            console.log('Enterprise ML system not available:', error);
+        }
 
-            item.innerHTML = `
-                <input type="checkbox" id="eq-${equipment.id}" value="${equipment.id}">
-                <label for="eq-${equipment.id}">${equipment.name}</label>
+        // Create trained equipment section with ML badges
+        if (trainedEquipment.length > 0) {
+            const mlSection = document.createElement('div');
+            mlSection.className = 'equipment-section';
+            mlSection.innerHTML = `
+                <div class="section-title">
+                    <i class="fas fa-robot"></i>
+                    <span>AI学習済み機器 (高精度検出)</span>
+                    <span class="ml-badge">ML</span>
+                </div>
             `;
+            container.appendChild(mlSection);
 
-            container.appendChild(item);
-        });
+            trainedEquipment.forEach(equipment => {
+                const item = document.createElement('div');
+                item.className = 'equipment-checkbox ml-equipment';
+                item.innerHTML = `
+                    <input type="checkbox" id="ml-eq-${equipment.id}" value="ml-${equipment.id}" data-type="ml">
+                    <label for="ml-eq-${equipment.id}">
+                        <div class="equipment-info">
+                            <span class="equipment-name">${equipment.name}</span>
+                            <div class="equipment-badges">
+                                <span class="accuracy-badge accuracy-${this.getAccuracyClass(equipment.accuracy)}">${equipment.accuracy}%</span>
+                                <span class="ml-indicator">AI</span>
+                            </div>
+                        </div>
+                    </label>
+                `;
+                container.appendChild(item);
+            });
+        }
+
+        // Create regular equipment section
+        if (this.equipmentList.length > 0) {
+            const regularSection = document.createElement('div');
+            regularSection.className = 'equipment-section';
+            regularSection.innerHTML = `
+                <div class="section-title">
+                    <i class="fas fa-cog"></i>
+                    <span>登録機器 (従来検出)</span>
+                </div>
+            `;
+            container.appendChild(regularSection);
+
+            this.equipmentList.forEach(equipment => {
+                const item = document.createElement('div');
+                item.className = 'equipment-checkbox regular-equipment';
+                item.innerHTML = `
+                    <input type="checkbox" id="eq-${equipment.id}" value="${equipment.id}" data-type="regular">
+                    <label for="eq-${equipment.id}">
+                        <div class="equipment-info">
+                            <span class="equipment-name">${equipment.name}</span>
+                            <div class="equipment-badges">
+                                <span class="detection-type">従来</span>
+                            </div>
+                        </div>
+                    </label>
+                `;
+                container.appendChild(item);
+            });
+        }
+
+        // Add empty state if no equipment
+        if (trainedEquipment.length === 0 && this.equipmentList.length === 0) {
+            container.innerHTML = `
+                <div class="empty-state">
+                    <i class="fas fa-inbox"></i>
+                    <p>機器が登録されていません</p>
+                    <small>機器登録タブまたは機械学習タブで機器を追加してください</small>
+                </div>
+            `;
+        }
+    }
+
+    getAccuracyClass(accuracy) {
+        if (accuracy >= 95) return 'excellent';
+        if (accuracy >= 85) return 'good';
+        if (accuracy >= 75) return 'fair';
+        return 'poor';
     }
 
     loadDiagramToCanvas(imagePath) {
@@ -256,17 +358,31 @@ class DiagramDigitizationSystem {
 
         const img = new Image();
         img.onload = () => {
-            // Set canvas size to match image
-            canvas.width = img.width;
-            canvas.height = img.height;
+            // Set canvas size to match image with max dimensions
+            const maxWidth = 800;
+            const maxHeight = 600;
+            let { width, height } = img;
+
+            if (width > maxWidth || height > maxHeight) {
+                const ratio = Math.min(maxWidth / width, maxHeight / height);
+                width *= ratio;
+                height *= ratio;
+            }
+
+            canvas.width = width;
+            canvas.height = height;
+            canvas.style.width = width + 'px';
+            canvas.style.height = height + 'px';
 
             // Draw the diagram
             ctx.clearRect(0, 0, canvas.width, canvas.height);
-            ctx.drawImage(img, 0, 0);
+            ctx.drawImage(img, 0, 0, width, height);
 
             this.currentDiagram = {
                 image: img,
-                path: imagePath
+                path: imagePath,
+                width: width,
+                height: height
             };
 
             this.showNotification('図面が読み込まれました', 'success');
@@ -274,10 +390,14 @@ class DiagramDigitizationSystem {
 
         img.onerror = (error) => {
             console.error('Failed to load image:', error);
+            console.error('Image path:', imagePath);
             this.showNotification('図面の読み込みに失敗しました', 'error');
         };
 
+        // Use the correct path from backend (static/diagrams/)
         img.src = `http://localhost:8000/${imagePath}`;
+        console.log('Loading image from:', img.src);
+        console.log('Original imagePath:', imagePath);
 
         // Switch to visualization tab
         this.switchTab('visualization');
@@ -391,36 +511,117 @@ class DiagramDigitizationSystem {
             this.showLoading(true);
             this.clearHighlights();
 
-            // 実際の画像マッチングAPIを呼び出し
-            const response = await fetch(`${this.apiBaseUrl}/match-equipment`, {
-                method: 'POST',
-                headers: {
-                    'Content-Type': 'application/json',
-                },
-                body: JSON.stringify({
-                    diagram_path: this.currentDiagram.path,
-                    equipment_ids: selectedEquipment.map(id => parseInt(id))
-                })
-            });
+            // Separate ML-trained and regular equipment
+            const mlEquipment = selectedEquipment.filter(eq => eq.type === 'ml');
+            const regularEquipment = selectedEquipment.filter(eq => eq.type === 'regular');
 
-            const data = await response.json();
+            let allMatches = [];
+            let mlMatches = [];
+            let traditionalMatches = [];
 
-            if (response.ok) {
-                if (data.matches && data.matches.length > 0) {
-                    // 実際の検出結果でハイライト表示
-                    data.matches.forEach(match => {
-                        this.addRealHighlight(match);
+            // Process ML-trained equipment with enterprise ML system
+            for (const equipment of mlEquipment) {
+                try {
+                    const equipmentId = equipment.id.replace('ml-', ''); // Remove ml- prefix
+                    const response = await fetch(`${this.apiBaseUrl}/enterprise/predict`, {
+                        method: 'POST',
+                        headers: {
+                            'Content-Type': 'application/json',
+                        },
+                        body: JSON.stringify({
+                            equipment_id: parseInt(equipmentId),
+                            diagram_path: this.currentDiagram.path
+                        })
                     });
 
-                    this.showNotification(
-                        `${data.total_found}つの機器を検出してハイライトしました`,
-                        'success'
-                    );
-                } else {
-                    this.showNotification('図面上で機器が検出されませんでした', 'warning');
+                    if (response.ok) {
+                        const data = await response.json();
+                        if (data.detections && data.detections.length > 0) {
+                            data.detections.forEach(detection => {
+                                const match = {
+                                    ...detection,
+                                    equipment_name: data.equipment_name || '不明な機器',
+                                    detection_type: 'enterprise_ml',
+                                    confidence: detection.confidence || 0.95,
+                                    model_accuracy: data.model_accuracy || 95
+                                };
+                                mlMatches.push(match);
+                                allMatches.push(match);
+                            });
+                        }
+                    }
+                } catch (error) {
+                    console.log(`Enterprise ML detection failed for equipment ${equipment.id}:`, error);
                 }
+            }
+
+            // Process regular equipment with traditional detection
+            if (regularEquipment.length > 0) {
+                try {
+                    const response = await fetch(`${this.apiBaseUrl}/match-equipment`, {
+                        method: 'POST',
+                        headers: {
+                            'Content-Type': 'application/json',
+                        },
+                        body: JSON.stringify({
+                            diagram_path: this.currentDiagram.path,
+                            equipment_ids: regularEquipment.map(eq => parseInt(eq.id))
+                        })
+                    });
+
+                    if (response.ok) {
+                        const data = await response.json();
+                        if (data.matches && data.matches.length > 0) {
+                            data.matches.forEach(match => {
+                                const enhancedMatch = {
+                                    ...match,
+                                    detection_type: 'traditional',
+                                    confidence: match.confidence || 0.7
+                                };
+                                traditionalMatches.push(enhancedMatch);
+                                allMatches.push(enhancedMatch);
+                            });
+                        }
+                    }
+                } catch (error) {
+                    console.log('Traditional detection failed:', error);
+                }
+            }
+
+            // Display results with enhanced visual highlighting
+            if (allMatches.length > 0) {
+                allMatches.forEach(match => {
+                    this.addEnhancedHighlight(match);
+                });
+
+                // Show comprehensive detection results
+                const mlCount = mlMatches.length;
+                const traditionalCount = traditionalMatches.length;
+
+                let message = `✅ ${allMatches.length}つの機器を検出しました`;
+
+                if (mlCount > 0 && traditionalCount > 0) {
+                    message += `\n🤖 AI検出: ${mlCount}個 (高精度)\n🔍 従来検出: ${traditionalCount}個`;
+                } else if (mlCount > 0) {
+                    message += `\n🤖 AI検出: ${mlCount}個 (高精度)`;
+                    const avgAccuracy = mlMatches.reduce((sum, m) => sum + (m.model_accuracy || 0), 0) / mlCount;
+                    message += `\n📊 平均精度: ${avgAccuracy.toFixed(1)}%`;
+                } else if (traditionalCount > 0) {
+                    message += `\n🔍 従来検出: ${traditionalCount}個`;
+                }
+
+                this.showNotification(message, 'success');
+
+                // Show detection details in console for debugging
+                console.log('🎯 Detection Results:', {
+                    total: allMatches.length,
+                    ml: mlMatches.length,
+                    traditional: traditionalMatches.length,
+                    matches: allMatches
+                });
+
             } else {
-                this.showNotification(data.error || 'ハイライト処理に失敗しました', 'error');
+                this.showNotification('❌ 図面上で機器が検出されませんでした\n・機器の位置や角度を確認してください\n・AI学習タブで追加学習を検討してください', 'warning');
             }
         } catch (error) {
             this.showNotification('ネットワークエラーが発生しました', 'error');
@@ -432,7 +633,11 @@ class DiagramDigitizationSystem {
 
     getSelectedEquipment() {
         const checkboxes = document.querySelectorAll('#equipment-selection-list input[type="checkbox"]:checked');
-        return Array.from(checkboxes).map(cb => cb.value);
+        return Array.from(checkboxes).map(cb => ({
+            id: cb.value,
+            type: cb.dataset.type || 'regular',
+            element: cb
+        }));
     }
 
     addRealHighlight(match) {
@@ -532,6 +737,179 @@ class DiagramDigitizationSystem {
         }, 5000);
     }
 
+    addEnhancedHighlight(match) {
+        const overlay = document.getElementById('coordinate-overlay');
+        const canvas = document.getElementById('diagram-canvas');
+        const container = document.querySelector('.diagram-container');
+
+        // Calculate scaling factors
+        const scaleX = canvas.offsetWidth / canvas.width;
+        const scaleY = canvas.offsetHeight / canvas.height;
+
+        const scaledX = match.x * scaleX;
+        const scaledY = match.y * scaleY;
+        const scaledWidth = match.width * scaleX;
+        const scaledHeight = match.height * scaleY;
+
+        // Create main highlight container
+        const highlightContainer = document.createElement('div');
+        highlightContainer.className = `enhanced-highlight-container ${match.detection_type}-highlight`;
+        highlightContainer.style.position = 'absolute';
+        highlightContainer.style.left = scaledX + 'px';
+        highlightContainer.style.top = scaledY + 'px';
+        highlightContainer.style.width = scaledWidth + 'px';
+        highlightContainer.style.height = scaledHeight + 'px';
+        highlightContainer.style.zIndex = '1000';
+        highlightContainer.style.pointerEvents = 'none';
+
+        // Create the main bounding box with enterprise styling
+        const boundingBox = document.createElement('div');
+        boundingBox.className = 'enhanced-bounding-box';
+
+        // Set colors and styles based on detection type
+        let borderColor, backgroundColor, shadowColor;
+        if (match.detection_type === 'enterprise_ml') {
+            borderColor = '#3b82f6'; // Blue for ML
+            backgroundColor = 'rgba(59, 130, 246, 0.15)';
+            shadowColor = 'rgba(59, 130, 246, 0.4)';
+        } else {
+            borderColor = '#f59e0b'; // Orange for traditional
+            backgroundColor = 'rgba(245, 158, 11, 0.15)';
+            shadowColor = 'rgba(245, 158, 11, 0.4)';
+        }
+
+        boundingBox.style.position = 'absolute';
+        boundingBox.style.top = '0';
+        boundingBox.style.left = '0';
+        boundingBox.style.right = '0';
+        boundingBox.style.bottom = '0';
+        boundingBox.style.border = `3px solid ${borderColor}`;
+        boundingBox.style.backgroundColor = backgroundColor;
+        boundingBox.style.borderRadius = '8px';
+        boundingBox.style.boxShadow = `0 0 20px ${shadowColor}, inset 0 0 20px ${shadowColor}`;
+        boundingBox.style.animation = 'enhanced-pulse 2s ease-in-out infinite alternate';
+
+        // Create confidence badge
+        const confidenceBadge = document.createElement('div');
+        confidenceBadge.className = 'confidence-badge';
+        confidenceBadge.textContent = `${(match.confidence * 100).toFixed(1)}%`;
+        confidenceBadge.style.position = 'absolute';
+        confidenceBadge.style.top = '-12px';
+        confidenceBadge.style.right = '-8px';
+        confidenceBadge.style.background = match.detection_type === 'enterprise_ml' ?
+            'linear-gradient(135deg, #3b82f6, #1e40af)' :
+            'linear-gradient(135deg, #f59e0b, #d97706)';
+        confidenceBadge.style.color = 'white';
+        confidenceBadge.style.padding = '4px 8px';
+        confidenceBadge.style.borderRadius = '12px';
+        confidenceBadge.style.fontSize = '11px';
+        confidenceBadge.style.fontWeight = '700';
+        confidenceBadge.style.textShadow = '0 1px 2px rgba(0, 0, 0, 0.3)';
+        confidenceBadge.style.boxShadow = '0 2px 6px rgba(0, 0, 0, 0.3)';
+        confidenceBadge.style.zIndex = '1001';
+
+        // Create detection type indicator
+        const typeIndicator = document.createElement('div');
+        typeIndicator.className = 'detection-type-indicator';
+        typeIndicator.style.position = 'absolute';
+        typeIndicator.style.top = '-12px';
+        typeIndicator.style.left = '-8px';
+        typeIndicator.style.padding = '3px 6px';
+        typeIndicator.style.borderRadius = '8px';
+        typeIndicator.style.fontSize = '9px';
+        typeIndicator.style.fontWeight = '800';
+        typeIndicator.style.textTransform = 'uppercase';
+        typeIndicator.style.color = 'white';
+        typeIndicator.style.textShadow = '0 1px 2px rgba(0, 0, 0, 0.4)';
+        typeIndicator.style.zIndex = '1001';
+
+        if (match.detection_type === 'enterprise_ml') {
+            typeIndicator.textContent = 'AI';
+            typeIndicator.style.background = 'linear-gradient(135deg, #8b5cf6, #7c3aed)';
+            typeIndicator.style.animation = 'ai-glow 1.5s ease-in-out infinite alternate';
+        } else {
+            typeIndicator.textContent = '従来';
+            typeIndicator.style.background = 'linear-gradient(135deg, #6b7280, #4b5563)';
+        }
+
+        // Create equipment name label
+        const nameLabel = document.createElement('div');
+        nameLabel.className = 'equipment-name-label';
+        nameLabel.textContent = match.equipment_name || '機器';
+        nameLabel.style.position = 'absolute';
+        nameLabel.style.bottom = '-28px';
+        nameLabel.style.left = '0';
+        nameLabel.style.background = 'rgba(0, 0, 0, 0.8)';
+        nameLabel.style.color = 'white';
+        nameLabel.style.padding = '4px 8px';
+        nameLabel.style.borderRadius = '6px';
+        nameLabel.style.fontSize = '12px';
+        nameLabel.style.fontWeight = '600';
+        nameLabel.style.whiteSpace = 'nowrap';
+        nameLabel.style.backdropFilter = 'blur(4px)';
+        nameLabel.style.boxShadow = '0 2px 8px rgba(0, 0, 0, 0.3)';
+        nameLabel.style.zIndex = '1001';
+
+        // Create accuracy indicator for ML detections
+        if (match.detection_type === 'enterprise_ml' && match.model_accuracy) {
+            const accuracyIndicator = document.createElement('div');
+            accuracyIndicator.className = 'accuracy-indicator';
+            accuracyIndicator.textContent = `精度:${match.model_accuracy}%`;
+            accuracyIndicator.style.position = 'absolute';
+            accuracyIndicator.style.bottom = '-45px';
+            accuracyIndicator.style.right = '0';
+            accuracyIndicator.style.background = 'linear-gradient(135deg, #10b981, #059669)';
+            accuracyIndicator.style.color = 'white';
+            accuracyIndicator.style.padding = '3px 6px';
+            accuracyIndicator.style.borderRadius = '4px';
+            accuracyIndicator.style.fontSize = '10px';
+            accuracyIndicator.style.fontWeight = '600';
+            accuracyIndicator.style.textShadow = '0 1px 2px rgba(0, 0, 0, 0.3)';
+            accuracyIndicator.style.zIndex = '1001';
+            highlightContainer.appendChild(accuracyIndicator);
+        }
+
+        // Assemble the highlight
+        highlightContainer.appendChild(boundingBox);
+        highlightContainer.appendChild(confidenceBadge);
+        highlightContainer.appendChild(typeIndicator);
+        highlightContainer.appendChild(nameLabel);
+
+        // Create center point indicator
+        const centerPoint = document.createElement('div');
+        centerPoint.className = 'center-point-indicator';
+        centerPoint.style.position = 'absolute';
+        centerPoint.style.left = '50%';
+        centerPoint.style.top = '50%';
+        centerPoint.style.width = '8px';
+        centerPoint.style.height = '8px';
+        centerPoint.style.background = borderColor;
+        centerPoint.style.borderRadius = '50%';
+        centerPoint.style.transform = 'translate(-50%, -50%)';
+        centerPoint.style.boxShadow = `0 0 8px ${shadowColor}`;
+        centerPoint.style.zIndex = '1002';
+        highlightContainer.appendChild(centerPoint);
+
+        // Add tooltip functionality
+        highlightContainer.title = [
+            `機器: ${match.equipment_name || '不明'}`,
+            `検出方式: ${match.detection_type === 'enterprise_ml' ? 'AI高精度検出' : '従来手法'}`,
+            `信頼度: ${(match.confidence * 100).toFixed(1)}%`,
+            match.model_accuracy ? `モデル精度: ${match.model_accuracy}%` : '',
+            `座標: (${match.x}, ${match.y})`,
+            `サイズ: ${match.width}×${match.height}`
+        ].filter(Boolean).join('\n');
+
+        overlay.appendChild(highlightContainer);
+
+        // Display coordinate if center point is available
+        if (match.center_x !== undefined && match.center_y !== undefined) {
+            this.displayCoordinate(match.center_x * scaleX, match.center_y * scaleY);
+        }
+
+        console.log(`🎯 Enhanced Highlight: ${match.equipment_name} [${match.detection_type}] - Confidence: ${(match.confidence * 100).toFixed(1)}%`);
+    }
+
     clearHighlights() {
         const overlay = document.getElementById('coordinate-overlay');
         const highlights = overlay.querySelectorAll('.highlight-overlay');
@@ -574,6 +952,30 @@ class DiagramDigitizationSystem {
             console.error('Delete equipment error:', error);
         } finally {
             this.showLoading(false);
+        }
+    }
+
+    updateStatistics() {
+        const totalEquipmentEl = document.getElementById('total-equipment');
+        const totalImagesEl = document.getElementById('total-images');
+
+        if (totalEquipmentEl && totalImagesEl) {
+            const totalEquipment = this.equipmentList.length;
+            const totalImages = this.equipmentList.reduce((sum, equipment) => {
+                return sum + (equipment.images ? equipment.images.length : 0);
+            }, 0);
+
+            totalEquipmentEl.textContent = totalEquipment;
+            totalImagesEl.textContent = totalImages;
+
+            // Add animation to updated numbers
+            totalEquipmentEl.style.transform = 'scale(1.1)';
+            totalImagesEl.style.transform = 'scale(1.1)';
+
+            setTimeout(() => {
+                totalEquipmentEl.style.transform = 'scale(1)';
+                totalImagesEl.style.transform = 'scale(1)';
+            }, 300);
         }
     }
 
