@@ -1,0 +1,112 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>🚢 3RDデッキ機関室機器配置可視化システム</title>
+    <link rel="stylesheet" href="style.css">
+</head>
+<body>
+    <header class="header">
+        <div class="container">
+            <h1>🚢 3RDデッキ機関室機器配置可視化システム</h1>
+            <p>図面から機器位置をデジタル化し、機器の位置を可視化します</p>
+        </div>
+    </header>
+
+    <nav class="nav-tabs">
+        <div class="container">
+            <ul class="tabs">
+                <li><a href="#" class="tab active" data-tab="equipment-register">機器登録</a></li>
+                <li><a href="#" class="tab" data-tab="diagram-upload">図面アップロード</a></li>
+                <li><a href="#" class="tab" data-tab="visualization">可視化</a></li>
+            </ul>
+        </div>
+    </nav>
+
+    <main class="main-container">
+        <div class="container">
+            <!-- 機器登録タブ -->
+            <div id="equipment-register" class="tab-content active">
+                <h2>機器登録</h2>
+                <div class="equipment-form">
+                    <div class="form-group">
+                        <label for="equipment-name">機器名:</label>
+                        <input type="text" id="equipment-name" placeholder="ディーゼル発電機など">
+                    </div>
+                    <div class="form-group">
+                        <label for="equipment-images">機器画像 (複数可):</label>
+                        <input type="file" id="equipment-images" multiple accept="image/*">
+                        <div id="image-preview" class="image-preview"></div>
+                    </div>
+                    <button id="register-equipment" class="btn btn-primary">機器登録</button>
+                </div>
+
+                <!-- 登録済み機器一覧 -->
+                <div class="registered-equipment">
+                    <h3>登録済み機器一覧</h3>
+                    <div id="equipment-list" class="equipment-list"></div>
+                </div>
+            </div>
+
+            <!-- 図面アップロードタブ -->
+            <div id="diagram-upload" class="tab-content">
+                <h2>図面アップロード</h2>
+                <div class="upload-form">
+                    <div class="form-group">
+                        <label for="diagram-file">機関室図面 (PDF):</label>
+                        <input type="file" id="diagram-file" accept=".pdf,image/*">
+                    </div>
+                    <button id="upload-diagram" class="btn btn-primary">図面アップロード</button>
+                </div>
+
+                <!-- アップロード済み図面一覧 -->
+                <div class="uploaded-diagrams">
+                    <h3>アップロード済み図面</h3>
+                    <div id="diagram-list" class="diagram-list"></div>
+                </div>
+            </div>
+
+            <!-- 可視化タブ -->
+            <div id="visualization" class="tab-content">
+                <div class="visualization-layout">
+                    <!-- 図面表示エリア -->
+                    <div class="diagram-area">
+                        <div class="diagram-controls">
+                            <button id="toggle-coordinates" class="btn btn-secondary">xy座標平面を追加</button>
+                            <button id="clear-coordinates" class="btn btn-secondary">クリア</button>
+                            <div id="coordinate-display" class="coordinate-display"></div>
+                        </div>
+                        <div class="diagram-container">
+                            <canvas id="diagram-canvas"></canvas>
+                            <div id="coordinate-overlay" class="coordinate-overlay"></div>
+                        </div>
+                    </div>
+
+                    <!-- 機器選択リスト -->
+                    <div class="equipment-selection">
+                        <h3>機器選択リスト</h3>
+                        <div id="equipment-selection-list" class="equipment-checklist"></div>
+                        <div class="selection-controls">
+                            <button id="highlight-selected" class="btn btn-primary">選択機器をハイライト</button>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </main>
+
+    <!-- モーダル -->
+    <div id="loading-modal" class="modal">
+        <div class="modal-content">
+            <div class="loading-spinner"></div>
+            <p>処理中...</p>
+        </div>
+    </div>
+
+    <!-- 通知 -->
+    <div id="notification" class="notification"></div>
+
+    <script src="script.js"></script>
+</body>
+</html>
